@@ -1,5 +1,13 @@
 # tmuxforall Changelog
 
+## 2026-03-10d — L0 安全手册 + SKILL.md 安全段落
+
+### 新增
+- **references/safety-manual.md** — L0 操作安全手册：三大架构公理（session 名可变性、命名空间隔离、busy 进程神圣不可侵犯）、操作检查清单（bootstrap/kill/babysit/restart/merge 前检查项）、已知陷阱 P-001~P-004 记录、事故索引、恢复手册
+- **SKILL.md L0 Safety 段落** — 在 Battle-Tested Lessons 后新增 L0 安全规范摘要，链接到完整安全手册
+
+---
+
 ## 2026-03-10c — bootstrap 同名 session 冲突检测（致命 bugfix）
 
 ### 修复

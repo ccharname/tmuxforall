@@ -225,6 +225,35 @@ Executor and inspector agents run with `CLAUDE_CODE_SIMPLE=1`, which disables gl
 
 ---
 
+## L0 Safety — Meta-Commander Operating Rules
+
+L0 (the human or supervisory session managing CM sessions) has **more power than CM but also more blast radius**. These rules prevent L0 from causing the very damage it's meant to prevent. Full details in `references/safety-manual.md`.
+
+### Three architectural axioms
+
+1. **Session names are mutable** — session manager adds numeric prefixes (`myapp` → `3-myapp`). Always use `tf_find_session()` for matching, never `tmux has-session -t`.
+2. **Namespace isolation is mandatory** — all temp files (mailbox/task/prompt/wip) must include session name prefix to prevent cross-session message leaks.
+3. **Busy processes are sacred** — never kill, restart, or `--fix` a busy CM/agent, even if diagnostics look wrong.
+
+### L0 checklist (before destructive operations)
+
+**Before kill-session:** List all sessions → identify target by window contents (not just name) → confirm no busy agents → execute.
+
+**Before bootstrap:** Verify no existing session matches the project name (fuzzy) → verify `--dir` points to intended directory → execute.
+
+**Before babysit --fix:** Run without `--fix` first → review report → confirm all flagged processes are idle → execute with `--fix`.
+
+### Known pitfalls
+
+| ID | Pitfall | Root Cause |
+|----|---------|-----------|
+| P-001 | Bootstrap creates duplicate session | Session name prefix mismatch |
+| P-002 | Cross-session mailbox leak | Temp files keyed by window name only |
+| P-003 | babysit --fix kills working CM | Role keywords scrolled off screen + no busy guard |
+| P-004 | Merge deletes worktree under busy agent | No agent-state check before merge |
+
+---
+
 ## Growth Memory
 
 Agents accumulate cross-project lessons in `memory/{role-id}.md`. When a new agent of the same role spawns, the last 60 lines of memory are injected into its system prompt — it starts with the wisdom of its predecessors.
@@ -323,5 +352,5 @@ tmuxforall/
 ├── archetypes/           # Archetype definitions (executor/inspector/thinker)
 ├── templates/            # Board template + activation hook
 ├── memory/               # Cross-project growth memory (auto-accumulated)
-└── references/           # Detailed Commander decision framework + tmux reference
+└── references/           # Commander framework + tmux reference + safety manual
 ```
