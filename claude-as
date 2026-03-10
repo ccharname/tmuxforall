@@ -1,0 +1,122 @@
+#!/bin/bash
+# claude-as — 以指定角色身份启动 Claude Code
+# 用法: claude-as <role-id> [project] [--archetype <type>] [--scope <path>] [-- claude额外参数...]
+# 别名: cl-be, cl-fe, cl-qa, cl-pm
+#
+# 示例:
+#   claude-as backend-engineer                    # 交互式后端工程师
+#   claude-as backend-engineer myapp              # 指定项目名
+#   claude-as db-migrator --archetype executor    # 动态角色
+#   claude-as backend-engineer -- -p "修复登录"    # 传参给 claude（单次模式）
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROLE_ID="${1:-}"
+
+if [[ -z "$ROLE_ID" ]]; then
+  echo "用法: claude-as <role-id> [project] [--archetype <type>] [--scope <path>]" >&2
+  echo "" >&2
+  echo "预定义角色:" >&2
+  echo "  backend-engineer   后端工程师 (executor)" >&2
+  echo "  frontend-engineer  前端工程师 (executor)" >&2
+  echo "  qa-engineer        测试工程师 (inspector)" >&2
+  echo "  product-manager    产品经理   (thinker)" >&2
+  echo "" >&2
+  echo "别名: cl-be, cl-fe, cl-qa, cl-pm" >&2
+  exit 1
+fi
+
+# 分离 build-prompt 参数和 claude 参数（用 -- 分隔）
+BUILD_ARGS=()
+CLAUDE_ARGS=()
+PAST_SEPARATOR=false
+for arg in "$@"; do
+  if [[ "$arg" == "--" ]]; then
+    PAST_SEPARATOR=true
+    continue
+  fi
+  if [[ "$PAST_SEPARATOR" == "true" ]]; then
+    CLAUDE_ARGS+=("$arg")
+  else
+    BUILD_ARGS+=("$arg")
+  fi
+done
+
+# 生成 prompt
+PROMPT="$(bash "${SKILL_DIR}/build-prompt.sh" "${BUILD_ARGS[@]}")"
+if [[ $? -ne 0 ]]; then
+  echo "[claude-as] prompt 生成失败" >&2
+  exit 1
+fi
+
+# 确定工作目录（executor 角色可选进入 worktree）
+ARCHETYPE_ID=""
+ROLE_FILE="${SKILL_DIR}/roles/${ROLE_ID}.yaml"
+if [[ -f "$ROLE_FILE" ]]; then
+  ARCHETYPE_ID="$(python3 -c "
+import re
+with open('${ROLE_FILE}') as f: c = f.read()
+m = re.search(r'^archetype:\s*[\"'\'']*(\w+)', c, re.MULTILINE)
+print(m.group(1) if m else '')
+" 2>/dev/null || echo '')"
+fi
+# CLI --archetype 覆盖
+for i in "${!BUILD_ARGS[@]}"; do
+  [[ "${BUILD_ARGS[$i]}" == "--archetype" ]] && ARCHETYPE_ID="${BUILD_ARGS[$((i+1))]:-}" && break
+done
+
+WORKDIR="$(pwd)"
+WORKTREE_CREATED=false
+if [[ "$ARCHETYPE_ID" == "executor" ]]; then
+  # 防嵌套
+  if [[ "$WORKDIR" == */worktrees/* ]]; then
+    WORKDIR="$(git -C "$WORKDIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
+  fi
+  if git -C "$WORKDIR" rev-parse --git-dir &>/dev/null 2>&1; then
+    WIN_NAME="$(python3 -c "
+import re
+with open('${ROLE_FILE}') as f: c = f.read()
+m = re.search(r'^window_name:\s*[\"'\'']*(\w+)', c, re.MULTILINE)
+print(m.group(1) if m else '${ROLE_ID^^}')
+" 2>/dev/null || echo "${ROLE_ID^^}")"
+    BRANCH_NAME="feature/${WIN_NAME}"
+    if command -v wt &>/dev/null; then
+      wt -C "$WORKDIR" switch --create "$BRANCH_NAME" --no-cd 2>/dev/null || \
+      wt -C "$WORKDIR" switch "$BRANCH_NAME" --no-cd 2>/dev/null || true
+      WORKTREE_PATH="$(wt -C "$WORKDIR" list --format=json 2>/dev/null | python3 -c "
+import sys,json
+data=json.load(sys.stdin)
+for w in data:
+    if w.get('branch')=='${BRANCH_NAME}' and w.get('path'):
+        print(w['path']); break
+" 2>/dev/null || echo "${WORKDIR}/worktrees/${WIN_NAME}")"
+    else
+      WORKTREE_PATH="${WORKDIR}/worktrees/${WIN_NAME}"
+      if [[ ! -d "$WORKTREE_PATH" ]]; then
+        git -C "$WORKDIR" worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" 2>/dev/null || \
+        git -C "$WORKDIR" worktree add "$WORKTREE_PATH" "$BRANCH_NAME" 2>/dev/null || true
+      fi
+    fi
+    if [[ -d "$WORKTREE_PATH" ]]; then
+      WORKDIR="$WORKTREE_PATH"
+      WORKTREE_CREATED=true
+      echo "[claude-as] worktree: ${WORKTREE_PATH} (branch: ${BRANCH_NAME})"
+    fi
+  fi
+fi
+
+# 身份隔离：executor/inspector 用 SIMPLE 模式（禁用全局 CLAUDE.md/MCP/hooks）
+# thinker 保留完整功能（需要 WebSearch/WebFetch 等 MCP 工具做调研）
+SIMPLE_ENV=""
+if [[ "$ARCHETYPE_ID" == "executor" || "$ARCHETYPE_ID" == "inspector" ]]; then
+  SIMPLE_ENV="CLAUDE_CODE_SIMPLE=1"
+fi
+
+# 启动 claude
+echo "[claude-as] 角色: ${ROLE_ID} | 项目: $(basename "$(pwd)") | 工作目录: ${WORKDIR} ${SIMPLE_ENV:+| 隔离模式}"
+cd "$WORKDIR"
+if [[ -n "$SIMPLE_ENV" ]]; then
+  CLAUDE_CODE_SIMPLE=1 ${TMUXFORALL_CLAUDE_CMD} --system-prompt "$PROMPT" "${CLAUDE_ARGS[@]}"
+else
+  ${TMUXFORALL_CLAUDE_CMD} --system-prompt "$PROMPT" "${CLAUDE_ARGS[@]}"
+fi

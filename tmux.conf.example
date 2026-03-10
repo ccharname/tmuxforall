@@ -1,0 +1,41 @@
+# tmux.conf.example — Recommended tmux settings for tmuxforall
+# Copy relevant lines to your ~/.tmux.conf
+
+# --- Prefix key (use C-a instead of default C-b) ---
+# unbind C-b
+# set -g prefix C-a
+# bind C-a send-prefix
+
+# --- Session navigation ---
+# Jump to session by F-key (sessions get numbered prefixes like 3-xxx)
+bind -n F1 if-shell "tmux switch-client -t 1-*" "" ""
+bind -n F2 if-shell "tmux switch-client -t 2-*" "" ""
+bind -n F3 if-shell "tmux switch-client -t 3-*" "" ""
+bind -n F4 if-shell "tmux switch-client -t 4-*" "" ""
+bind -n F5 if-shell "tmux switch-client -t 5-*" "" ""
+
+# Jump to Commander window (window 0) with M-0
+bind -n M-0 select-window -t :0
+
+# --- Agent tracker integration (optional, requires agent-tracker) ---
+# Open Tracker TUI
+# bind -n M-t display-popup -E "tracker-client tui"
+# Jump to window with latest notification
+# bind -n M-m run-shell "tracker-client jump-latest"
+# Jump back to previous window
+# bind -n M-M last-window
+
+# --- Window status with task icons (optional, requires agent-tracker) ---
+# set -g window-status-format "#I:#W#{?@watching,⏳,}#{?@unread,🔔,}"
+# set -g window-status-current-format "#I:#W#{?@watching,⏳,}#{?@unread,🔔,}"
+
+# --- pane-died hook for tracker cleanup ---
+# set-hook -g pane-died 'run-shell "tracker-client delete_task #{window_name}"'
+# set-hook -g pane-focus-in 'run-shell "tracker-client acknowledge #{window_name}"'
+
+# --- General recommendations ---
+set -g mouse on
+set -g history-limit 50000
+set -g status-interval 5
+set -g base-index 1
+setw -g pane-base-index 1
