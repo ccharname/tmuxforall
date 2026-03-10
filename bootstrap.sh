@@ -55,11 +55,12 @@ if [[ -x "$TRACKER_CLIENT" ]]; then
   fi
 fi
 
-# 3. 检查 session 是否已存在
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-  echo "[bootstrap] Session ${SESSION} 已存在，跳过创建"
-  tmux switch-client -t "${SESSION}:CM" 2>/dev/null || true
-  exit 0
+# 3. 检查 session 是否已存在（包括带数字前缀的，如 3-chengguoagent）
+EXISTING_SESSION="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E "^([0-9]+-)?${SESSION}$" | head -1 || echo "")"
+if [[ -n "$EXISTING_SESSION" ]]; then
+  echo "[bootstrap] ❌ Session '${EXISTING_SESSION}' 已存在，拒绝创建同名 session（防止误杀）" >&2
+  echo "[bootstrap] 如需重建，请先手动关闭: tmux kill-session -t '${EXISTING_SESSION}'" >&2
+  exit 1
 fi
 
 # 4. 清理孤儿 worktree（上次 session 异常退出遗留的）
